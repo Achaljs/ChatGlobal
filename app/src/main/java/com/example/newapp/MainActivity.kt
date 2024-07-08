@@ -3,8 +3,19 @@ package com.example.newapp
 import android.content.Intent
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
+import android.view.LayoutInflater
+import android.view.View
 import android.widget.Button
+import android.widget.ProgressBar
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat.startActivity
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.lifecycleScope
+import com.example.newapp.data.AuthViewModle
+import com.example.newapp.data.Resource
+import com.example.newapp.databinding.ActivityHomeBinding
+import com.example.newapp.databinding.ActivityMainBinding
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.SignInButton
@@ -12,86 +23,90 @@ import com.google.android.gms.common.api.ApiException
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
 
+import dagger.hilt.android.AndroidEntryPoint
+import dagger.hilt.android.HiltAndroidApp
 
 
-
-
+@AndroidEntryPoint
 class MainActivity : AppCompatActivity() {
 
-    companion object {
-        private const val RC_SIGN_IN = 9001
+
+    private lateinit var viewModel: AuthViewModle
+
+    private val binding by lazy { ActivityMainBinding.inflate(layoutInflater) }
+
+    //for google signIN
+    private val googleSignInLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
+        try {
+            val account = task.getResult(ApiException::class.java)!!
+            viewModel.firebaseAuthWithGoogle(account.idToken!!)
+        } catch (e: ApiException) {
+            Toast.makeText(this, "Google sign in failed: ${e.message}", Toast.LENGTH_LONG).show()
+        }
     }
-
-    private lateinit var auth: FirebaseAuth
-
-
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
+        setContentView(binding.root)
 
-        auth = FirebaseAuth.getInstance()
+        viewModel = ViewModelProvider(this).get(AuthViewModle::class.java)
 
 
+        binding.googleSignIN.setOnClickListener {
 
-        val currentUser = auth.currentUser
+            val intent = viewModel.getGoogleSignInIntent()
 
-        if (currentUser != null) {
+            googleSignInLauncher.launch(intent)
 
-            val intent = Intent(this, HomeActivity::class.java)
-            startActivity(intent)
-            finish()
         }
 
-val normalButton=findViewById<Button>(R.id.normalSignin)
-        normalButton.setOnClickListener {
-            Toast.makeText(this, "Use Google SignIn method", Toast.LENGTH_LONG).show()
-        }
+        lifecycleScope.launchWhenStarted {
+            viewModel.loginFlow.collect { resource ->
+                when (resource) {
+                    is Resource.loading -> {
+                        binding.progressBar.visibility = View.VISIBLE
+                    }
+
+                    is Resource.success -> {
+                        binding.progressBar.visibility = View.GONE
+
+                        startActivity(Intent(this@MainActivity, HomeActivity::class.java))
+                        finish()
+                    }
+
+                    is Resource.Failure -> {
+                        binding.progressBar.visibility = View.GONE
+                        Toast.makeText(
+                            this@MainActivity,
+                            "Error: ${resource.exception.message}",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+
+                    null -> {
+
+                    }
+
+                }
 
 
-        val signInButton = findViewById<SignInButton>(R.id.googleSignIN)
-        signInButton.setOnClickListener {
-            signIn()
-        }
-    }
-
-    private fun signIn() {
-        val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-            .requestIdToken(getString(R.string.default_web_client_id))
-            .requestEmail()
-            .build()
-
-        val googleSignInClient = GoogleSignIn.getClient(this, gso)
-        val signInIntent = googleSignInClient.signInIntent
-        startActivityForResult(signInIntent, RC_SIGN_IN)
-    }
-
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-
-        if (requestCode == RC_SIGN_IN) {
-            val task = GoogleSignIn.getSignedInAccountFromIntent(data)
-            try {
-                val account = task.getResult(ApiException::class.java)
-                firebaseAuthWithGoogle(account.idToken!!)
-            } catch (e: ApiException) {
-                Toast.makeText(this, "Google sign in failed: ${e.message}", Toast.LENGTH_SHORT).show()
             }
+
+            checkcurrentUserLogin()
         }
     }
 
-    private fun firebaseAuthWithGoogle(idToken: String) {
-        val credential = GoogleAuthProvider.getCredential(idToken, null)
-        auth.signInWithCredential(credential)
-            .addOnCompleteListener(this) { task ->
-                if (task.isSuccessful) {
-                    val user = auth.currentUser
-                    Toast.makeText(this, "Signed in as ${user?.displayName}", Toast.LENGTH_SHORT).show()
-                    startActivity(Intent(this, HomeActivity::class.java))
-                    finish()
-                } else {
-                    Toast.makeText(this, "Authentication failed", Toast.LENGTH_SHORT).show()
+
+        fun checkcurrentUserLogin() {
+            viewModel.loginFlow.value?.let {
+                if (it is Resource.success) {
+                    val displayName = it.data.displayName ?: "User"
+                    // User is already logged in, navigate to the home screen or main activity
+                    Toast.makeText(this, "Welcome back, $displayName", Toast.LENGTH_LONG).show()
                 }
             }
+        }
     }
-}

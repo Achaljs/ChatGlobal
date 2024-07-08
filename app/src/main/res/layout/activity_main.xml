@@ -66,6 +66,11 @@
             android:layout_height="?actionBarSize"
             android:background="@drawable/rounded_corner"
             android:textSize="17sp" />
+        <ProgressBar
+            android:id="@+id/progressBar"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:visibility="gone"/>
         <Button
             android:id="@+id/normalSignin"
             android:paddingRight="20dp"
